@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # Swaybar Status Aggregator
 # Copyright © 2016 Zandr Martin
 
@@ -50,20 +50,24 @@ class Swaystag(asyncio.Protocol):
 
     def data_received(self, data):
         block_data = json.loads(data.decode())
-        block = self.verify_block(block_data)
 
-        if block is not None:
-            self.remove_block(block['name'])
+        if 'debug' in block_data.keys():
+            self.debug()
+        else:
+            block = self.verify_block(block_data)
 
-            remove = block.pop('remove', None)
+            if block is not None:
+                self.remove_block(block['name'])
 
-            if remove in [False, None]:
-                self.blocks.append(block)
-                self.sort_blocks()
+                remove = block.pop('remove', None)
 
-            self.render()
-            self.response['success'] = True
-            self.response['message'] = 'success'
+                if remove in [False, None]:
+                    self.blocks.append(block)
+                    self.sort_blocks()
+
+                self.render()
+                self.response['success'] = True
+                self.response['message'] = 'success'
 
         self.transport.write(json.dumps(self.response).encode())
 
@@ -99,6 +103,10 @@ class Swaystag(asyncio.Protocol):
             block['sort_order'] = lowest - 1
 
         return block
+
+    def debug(self):
+        self.response['message'] = json.dumps(self.blocks)
+        self.response['success'] = False
 
 
 def parse_config():
@@ -188,7 +196,7 @@ def connect_and_send(host, port, data):
 def get_args():
     parser = argparse.ArgumentParser(
         description='For information about block options, see https://i3wm.org/docs/i3bar-protocol.html')
-    parser.add_argument('command', type=str, choices=['block', 'server'],
+    parser.add_argument('command', type=str, choices=['block', 'server', 'debug'],
         help='"server" starts Swaystag in server mode. "block" performs block actions [add/update/remove].')
     parser.add_argument('-a', '--align', type=str, choices=['left', 'center', 'right'], default='center')
     parser.add_argument('-bg', '--background', type=color, help='Background color. Format: #rrggbb[aa]')
@@ -224,6 +232,10 @@ if __name__ == '__main__':
             run_server(config['host'], config['port'])
         except KeyboardInterrupt:
             exit()
+
+    elif args.command == 'debug':
+        data = {'debug': True}
+        connect_and_send(config['host'], config['port'], data)
 
     else:
         data = {k:v for k, v in vars(args).items() if v is not None}
