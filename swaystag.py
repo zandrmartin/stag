@@ -110,8 +110,12 @@ class Swaystag(asyncio.Protocol):
 
 
 def parse_config():
-    config_dir = os.getenv('XDG_CONFIG_HOME', default=os.path.expanduser('~/.config'))
-    config_file_path = os.path.join(config_dir, 'swaystag', 'config')
+    config_dir = os.getenv('XDG_CONFIG_HOME')
+
+    if config_dir is not None:
+        config_file_path = os.path.join(config_dir, 'swaystag', 'config')
+    else:
+        config_file_path = os.path.join(os.path.expanduser('~/.config'), '.config')
 
     try:
         with open(config_file_path, 'r') as config_file:
