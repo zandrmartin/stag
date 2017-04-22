@@ -1,13 +1,13 @@
 ## Swaystag - Swaybar Status Aggregator
 
-A glorified echo server that feeds [Swaybar](https://github.com/sircmpwn/sway/). Requires Python 3.4+. WIP.
+A glorified echo server that feeds [Swaybar](https://github.com/sircmpwn/sway/). Requires Python 3.6+. WIP.
 
 ### Config
 
 `chmod +x swaystag.py` (or replace calls to `swaystag.py` with `python3 swaystag.py`), set your `status_command` to be
 `/path/to/swaystag.py server` in your Sway config file's `bar {}` block. Optionally set up `~/.config/swaystag/config`.
 The currently supported config commands are:
-    
+
     host - sets the host to connect to for block commands. Defaults to "localhost".
     port - sets the port for the server to run on, and the port for the client to connect to. Defaults to 5000.
     spawn - a command to spawn when the Swaystag server starts. A clock process, for example.
@@ -51,7 +51,7 @@ like this:
     <do whatever thing to raise or lower your volume>
     volume=<whatever process you use to get the volume number e.g. grep through pactl output>
     swaystag.py block -n "volume" -f "Volume: $volume"
-    
+
 Now the volume block in Swaybar is only updated when you change the volume. No sense in reading it every second/five
 seconds/etc if it only changes intermittently.
 

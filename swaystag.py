@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Swaybar Status Aggregator
-# Copyright © 2016 Zandr Martin
+# Copyright © 2017 Zandr Martin
 
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the "Software"),
@@ -33,11 +33,30 @@ import sys
 config = {'port': 5000, 'spawn': [], 'host': 'localhost'}
 child_processes = []
 
-def flush_write(text):
-    sys.stdout.write(text)
-    sys.stdout.flush()
+def escape_for_pango(text):
+    markup_map = {
+        r'&': r'&amp;amp;',
+        r'>': r'&gt;',
+        r'<': r'&lt;',
+        r"'": r'&apos;',
+        r'"': r'&quot;'
+    }
 
-class Swaystag(asyncio.Protocol):
+    for k, v in markup_map.items():
+        text.replace(k, v)
+
+    return text
+
+
+def flush_write(text):
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except (BrokenPipeError, IOError) as e:
+        sys.stderr.write(e)
+
+
+class SwaystagServer(asyncio.Protocol):
     blocks = []
 
     def connection_made(self, transport):
@@ -70,6 +89,7 @@ class Swaystag(asyncio.Protocol):
                 self.response['message'] = 'success'
 
         self.transport.write(json.dumps(self.response).encode())
+        self.transport.close()
 
     def sort_blocks(self):
         self.blocks.sort(key=lambda x: x['sort_order'])
@@ -109,6 +129,24 @@ class Swaystag(asyncio.Protocol):
         self.response['success'] = False
 
 
+class SwaystagClient(asyncio.Protocol):
+    def __init__(self, message, loop):
+        self.message = message
+        self.loop = loop
+
+    def connection_made(self, transport):
+        transport.write(self.message.encode())
+
+    def data_received(self, data):
+        response = json.loads(data.decode())
+
+        if response['success'] != True:
+            print(response['message'])
+
+    def connection_lost(self, exc):
+        self.loop.stop()
+
+
 def parse_config():
     config_dir = os.getenv('XDG_CONFIG_HOME')
 
@@ -122,6 +160,9 @@ def parse_config():
             lines = config_file.read().split('\n')
 
         for line in lines:
+            if line.startswith('#'):
+                continue
+
             if ' ' in line:
                 setting, value = line.split(' ', 1)
 
@@ -138,8 +179,8 @@ def parse_config():
 
 
 def spawn_children():
-    for process in config['spawn']:
-        child_processes.append(subprocess.Popen('sleep 2; {}'.format(process), shell=True))
+    for i, proc in enumerate(config['spawn'], 1):
+        child_processes.append(subprocess.Popen(f'sleep {i*0.3}; {proc}', shell=True))
 
 
 def kill_children():
@@ -156,9 +197,15 @@ def run_server(host, port):
     flush_write('{"version":1}\n') # maintain i3bar compatibility
     flush_write('[[],\n') # maintain i3bar compatibility
     loop = asyncio.get_event_loop()
-    coro = loop.create_server(Swaystag, host, port)
+    coro = loop.create_server(SwaystagServer, host, port)
     srv = loop.run_until_complete(coro)
-    loop.run_forever()
+
+    try:
+        loop.run_forever()
+    finally:
+        srv.close()
+        loop.run_until_complete(srv.wait_closed())
+        loop.close()
 
 
 def color(color):
@@ -174,27 +221,12 @@ def color(color):
 
 
 def connect_and_send(host, port, data):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    try:
-        sock.connect((host, port))
-    except ConnectionRefusedError as e:
-        print('Could not connect to Swaystag server on {h} port {p}.'.format(h=host, p=port))
-        exit()
-
-    try:
-        sock.sendall(json.dumps(data).encode())
-        response = json.loads(sock.recv(4096).decode())
-
-        if response['success'] != True:
-            print(response['message'])
-
-    except:
-        # not sure what this would be so just swallow it
-        pass
-
-    finally:
-        sock.close()
+    loop = asyncio.get_event_loop()
+    message = json.dumps(data)
+    coro = loop.create_connection(lambda: SwaystagClient(message, loop), host, port)
+    loop.run_until_complete(coro)
+    loop.run_forever()
+    loop.close()
 
 
 def get_args():
@@ -244,4 +276,10 @@ if __name__ == '__main__':
     else:
         data = {k:v for k, v in vars(args).items() if v is not None}
         data.pop('command')
+
+        if args.markup == 'pango':
+            for text in ['full_text', 'short_text']:
+                if text in data:
+                    data[text] = escape_for_pango(data[text])
+
         connect_and_send(config['host'], config['port'], data)
