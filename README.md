@@ -39,7 +39,7 @@ second.
 
 A date block:
 
-    spawn while true; do stag.py block -n "calendar" -f "$(date +'%a %m/%d/%Y')"; sleep 21600; done
+    spawn while true; do stag.py block -n calendar -f "$(date +'%a %m/%d/%Y')"; sleep 21600; done
 
 Every six hours, this process will ping the Stag server to update the date. Even though we update the clock every
 second, the date only changes every 24 hours, so there's no reason to continually check it. The last date value "sticks" in
