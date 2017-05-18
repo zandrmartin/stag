@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Swaybar Status Aggregator
 # Copyright © 2017 Zandr Martin
 
 # Permission is hereby granted, free of charge, to any person obtaining
@@ -26,12 +25,12 @@ import asyncio
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 
 config = {'port': 5000, 'spawn': [], 'host': 'localhost'}
 child_processes = []
+
 
 def escape_for_pango(text):
     markup_map = {
@@ -56,7 +55,7 @@ def flush_write(text):
         sys.stderr.write(e)
 
 
-class SwaystagServer(asyncio.Protocol):
+class StagServer(asyncio.Protocol):
     blocks = []
 
     def connection_made(self, transport):
@@ -119,7 +118,11 @@ class SwaystagServer(asyncio.Protocol):
             return None
 
         if 'sort_order' not in block:
-            lowest = 1 if len(self.blocks) == 0 else min([b['sort_order'] for b in self.blocks])
+            if len(self.blocks) == 0:
+                lowest = 1
+            else:
+                lowest = min([b['sort_order'] for b in self.blocks])
+
             block['sort_order'] = lowest - 1
 
         return block
@@ -129,7 +132,7 @@ class SwaystagServer(asyncio.Protocol):
         self.response['success'] = False
 
 
-class SwaystagClient(asyncio.Protocol):
+class StagClient(asyncio.Protocol):
     def __init__(self, message, loop):
         self.message = message
         self.loop = loop
@@ -140,7 +143,7 @@ class SwaystagClient(asyncio.Protocol):
     def data_received(self, data):
         response = json.loads(data.decode())
 
-        if response['success'] != True:
+        if not response['success']:
             print(response['message'])
 
     def connection_lost(self, exc):
@@ -148,19 +151,19 @@ class SwaystagClient(asyncio.Protocol):
 
 
 def parse_config():
-    config_dir = os.getenv('XDG_CONFIG_HOME')
+    dir = os.getenv('XDG_CONFIG_HOME')
 
-    if config_dir is not None:
-        config_file_path = os.path.join(config_dir, 'swaystag', 'config')
+    if dir is not None:
+        cfg_path = os.path.join(dir, 'stagrc')
     else:
-        config_file_path = os.path.join(os.path.expanduser('~/.config'), '.config')
+        cfg_path = os.path.expanduser('~/.stagrc')
 
     try:
-        with open(config_file_path, 'r') as config_file:
-            lines = config_file.read().split('\n')
+        with open(cfg_path, 'r') as f:
+            lines = f.read().split('\n')
 
         for line in lines:
-            if line.startswith('#'):
+            if line.lstrip().startswith('#'):
                 continue
 
             if ' ' in line:
@@ -173,14 +176,14 @@ def parse_config():
                     config[setting].append(value)
                 else:
                     config[setting] = value
-
-    except FileNotFoundError:
+    except:
         pass
 
 
 def spawn_children():
     for i, proc in enumerate(config['spawn'], 1):
-        child_processes.append(subprocess.Popen(f'sleep {i*0.3}; {proc}', shell=True))
+        subp = subprocess.Popen(f'sleep {i*0.3}; {proc}', shell=True)
+        child_processes.append(subp)
 
 
 def kill_children():
@@ -194,10 +197,10 @@ def run_server(host, port):
     if len(config['spawn']) > 0:
         spawn_children()
 
-    flush_write('{"version":1}\n') # maintain i3bar compatibility
-    flush_write('[[],\n') # maintain i3bar compatibility
+    flush_write('{"version":1}\n')  # maintain i3bar compatibility
+    flush_write('[[],\n')  # maintain i3bar compatibility
     loop = asyncio.get_event_loop()
-    coro = loop.create_server(SwaystagServer, host, port)
+    coro = loop.create_server(StagServer, host, port)
     srv = loop.run_until_complete(coro)
 
     try:
@@ -209,52 +212,69 @@ def run_server(host, port):
 
 
 def color(color):
-    error_msg = 'Invalid color: {}'.format(color)
+    err = 'Invalid color: {}'.format(color)
 
     if color[0] != '#' or len(color) not in [7, 9]:
-        raise argparse.ArgumentTypeError(error_msg)
+        raise argparse.ArgumentTypeError(err)
 
     try:
         int(color[1:], 16)
     except ValueError:
-        raise argparse.ArgumentTypeError(error_msg)
+        raise argparse.ArgumentTypeError(err)
 
 
 def connect_and_send(host, port, data):
     loop = asyncio.get_event_loop()
-    message = json.dumps(data)
-    coro = loop.create_connection(lambda: SwaystagClient(message, loop), host, port)
+    msg = json.dumps(data)
+    coro = loop.create_connection(lambda: StagClient(msg, loop), host, port)
     loop.run_until_complete(coro)
     loop.run_forever()
     loop.close()
 
 
 def get_args():
-    parser = argparse.ArgumentParser(
-        description='For information about block options, see https://i3wm.org/docs/i3bar-protocol.html')
-    parser.add_argument('command', type=str, choices=['block', 'server', 'debug'],
-        help='"server" starts Swaystag in server mode. "block" performs block actions [add/update/remove].')
-    parser.add_argument('-a', '--align', type=str, choices=['left', 'center', 'right'], default='center')
-    parser.add_argument('-bg', '--background', type=color, help='Background color. Format: #rrggbb[aa]')
-    parser.add_argument('-b', '--border', type=color, help='Border color. Format: #rrggbb[aa]')
-    parser.add_argument('-c', '--color', type=color, help='Foreground color. Format: #rrggbb[aa]')
-    parser.add_argument('-f', '--full_text', type=str, help='Full text to display in block.')
-    parser.add_argument('-i', '--instance', type=str, help='Simply passed along to Swaybar, not used by Swaystag.')
-    parser.add_argument('-j', '--json', type=str, help='Send raw JSON to Swaystag server.')
-    parser.add_argument('-m', '--markup', type=str, choices=['pango', 'none'], default='pango',
-        help='Whether to use Pango markup or not when displaying this block.')
-    parser.add_argument('-n', '--name', type=str, help='Name of the block; used to uniquely identify a given block.')
-    parser.add_argument('-r', '--remove', action='store_true', help='Remove block specified by "--name".')
-    parser.add_argument('-s', '--separator', type=bool, default=True, help='Symbol to use as separator.')
-    parser.add_argument('-sbw', '--separator_block_width', type=int, default=9,
-        help='Width of separator block in pixels.')
-    parser.add_argument('-o', '--sort_order', type=int,
-        help='The location of the block. Lower numbers are left of higher numbers.')
-    parser.add_argument('-st', '--short_text', type=str, help='Shortened text to display in block.')
-    parser.add_argument('-u', '--urgent', type=bool, default=False, help='Whether block is urgent.')
-    parser.add_argument('-w', '--min_width', type=int, help='Minimum width of block in pixels.')
+    p = argparse.ArgumentParser(
+        description='''For information about block options,
+        see https://i3wm.org/docs/i3bar-protocol.html'''
+    )
+    p.add_argument('command', type=str, choices=['block', 'server', 'debug'],
+                   help='''"server" starts Stag in server mode.
+                   "block" performs block actions [add/update/remove].''')
+    p.add_argument('-a', '--align', type=str,
+                   choices=['left', 'center', 'right'], default='center')
+    p.add_argument('-bg', '--background', type=color,
+                   help='Background color. Format: #rrggbb[aa]')
+    p.add_argument('-b', '--border', type=color,
+                   help='Border color. Format: #rrggbb[aa]')
+    p.add_argument('-c', '--color', type=color,
+                   help='Foreground color. Format: #rrggbb[aa]')
+    p.add_argument('-f', '--full_text', type=str,
+                   help='Full text to display in block.')
+    p.add_argument('-i', '--instance', type=str,
+                   help='Simply passed along to the bar, not used by Stag.')
+    p.add_argument('-j', '--json', type=str,
+                   help='Send raw JSON to Stag server.')
+    p.add_argument('-m', '--markup', type=str, choices=['pango', 'none'],
+                   default='pango',
+                   help='Whether to use Pango markup for this block.')
+    p.add_argument('-n', '--name', type=str,
+                   help='Name; used to uniquely identify a given block.')
+    p.add_argument('-r', '--remove', action='store_true',
+                   help='Remove block specified by "--name".')
+    p.add_argument('-s', '--separator', type=bool, default=True,
+                   help='Symbol to use as separator.')
+    p.add_argument('-sbw', '--separator_block_width', type=int,
+                   help='Width of separator block in pixels.')
+    p.add_argument('-o', '--sort_order', type=int,
+                   help='The location of the block. Lower numbers are left.')
+    p.add_argument('-st', '--short_text', type=str,
+                   help='Shortened text to display in block.')
+    p.add_argument('-u', '--urgent', type=bool, default=False,
+                   help='Whether block is urgent.')
+    p.add_argument('-w', '--min_width', type=int,
+                   help='Minimum width of block in pixels.')
 
-    return parser.parse_args()
+    return p.parse_args()
 
 
 if __name__ == '__main__':
@@ -274,7 +294,7 @@ if __name__ == '__main__':
         connect_and_send(config['host'], config['port'], data)
 
     else:
-        data = {k:v for k, v in vars(args).items() if v is not None}
+        data = {k: v for k, v in vars(args).items() if v is not None}
         data.pop('command')
 
         if args.markup == 'pango':
