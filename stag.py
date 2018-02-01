@@ -275,7 +275,7 @@ def get_args():
     return p.parse_args()
 
 
-if __name__ == '__main__':
+def main():
     args = get_args()
     parse_config()
 
@@ -301,3 +301,7 @@ if __name__ == '__main__':
                     data[text] = escape_for_pango(data[text])
 
         connect_and_send(config['host'], config['port'], data)
+
+
+if __name__ == '__main__':
+    main()
