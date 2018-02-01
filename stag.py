@@ -34,7 +34,7 @@ child_processes = []
 
 def escape_for_pango(text):
     markup_map = {
-        r'&': r'&amp;amp;',
+        r'&': r'&amp;',
         r'>': r'&gt;',
         r'<': r'&lt;',
         r"'": r'&apos;',
@@ -42,7 +42,7 @@ def escape_for_pango(text):
     }
 
     for k, v in markup_map.items():
-        text.replace(k, v)
+        text = text.replace(k, v)
 
     return text
 
@@ -159,14 +159,12 @@ def parse_config():
         cfg_path = os.path.expanduser('~/.stagrc')
 
     try:
-        with open(cfg_path, 'r') as f:
-            lines = f.read().split('\n')
+        with open(cfg_path, 'r') as file:
+            for _line in file:
+                line = _line.rstrip('\n').lstrip()
+                if line.startswith('#') or ' ' not in line:
+                    continue
 
-        for line in lines:
-            if line.lstrip().startswith('#'):
-                continue
-
-            if ' ' in line:
                 setting, value = line.split(' ', 1)
 
                 if value.isdigit():
@@ -261,9 +259,9 @@ def get_args():
                    help='Name; used to uniquely identify a given block.')
     p.add_argument('-r', '--remove', action='store_true',
                    help='Remove block specified by "--name".')
-    p.add_argument('-s', '--separator', type=bool, default=True,
+    p.add_argument('-s', '--separator', type=bool,
                    help='Symbol to use as separator.')
-    p.add_argument('-sbw', '--separator_block_width', type=int,
+    p.add_argument('-sbw', '--separator_block_width', type=int, default=21,
                    help='Width of separator block in pixels.')
     p.add_argument('-o', '--sort_order', type=int,
                    help='The location of the block. Lower numbers are left.')
